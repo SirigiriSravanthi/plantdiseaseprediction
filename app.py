@@ -61,7 +61,7 @@ def predict_disease(image_path):
 def home():
     return render_template("index.html")
 
-@app.route("/predict", methods=["POST"])
+@app.route("/predict", methods=["GET", "POST"])
 def predict():
     disease = None
     prescription = None
