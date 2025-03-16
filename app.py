@@ -7,12 +7,9 @@ from tensorflow.keras.models import load_model
 from tensorflow.keras.preprocessing.image import img_to_array
 from PIL import Image
 
-# Disable GPU if not available
-os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
-
 app = Flask(__name__)
 
-# Allowed file extensions
+# Allowed extensions
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg'}
 
 # Upload folder
@@ -20,7 +17,14 @@ UPLOAD_FOLDER = os.path.join("static", "uploads")
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
 
-# Disease categories and prescriptions
+# Load model once (before handling requests)
+MODEL_PATH = os.path.join("model", "rice_disease_model.h5")
+if os.path.exists(MODEL_PATH):
+    model = load_model(MODEL_PATH, compile=False)  # Load once at startup
+else:
+    model = None  # Handle missing model
+
+# Disease categories
 class_labels = ['Bacterial Leaf Blight', 'Brown Spot', 'Healthy', 'Leaf Blast', 'Leaf Scald', 'Narrow Brown Spot']
 prescriptions = {
     'Bacterial Leaf Blight': 'Use Streptomycin and copper-based fungicides.',
@@ -31,16 +35,15 @@ prescriptions = {
     'Narrow Brown Spot': 'Increase nitrogen fertilizer and improve drainage.'
 }
 
-# Load the model once at startup
-MODEL_PATH = os.path.join("model", "rice_disease_model.h5")
-model = load_model(MODEL_PATH, compile=False)
-
 # Function to check allowed file extensions
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
 # Function to predict disease
 def predict_disease(image_path):
+    if model is None:
+        return "Model not found", "Please check deployment."
+
     image = Image.open(image_path).resize((150, 150))
     img_array = img_to_array(image) / 255.0
     img_array = np.expand_dims(img_array, axis=0)
@@ -58,23 +61,22 @@ def predict_disease(image_path):
 def home():
     return render_template("index.html")
 
-@app.route("/predict", methods=["GET", "POST"])
+@app.route("/predict", methods=["POST"])
 def predict():
     disease = None
     prescription = None
     image_url = None
 
-    if request.method == "POST":
-        file = request.files.get("file")
-        if file and allowed_file(file.filename):
-            filename = f"{int(time.time())}_{file.filename}"  # Unique filename
-            file_path = os.path.join(app.config["UPLOAD_FOLDER"], filename)
-            file.save(file_path)
+    file = request.files.get("file")
+    if file and allowed_file(file.filename):
+        filename = f"{int(time.time())}_{file.filename}"  # Unique filename
+        file_path = os.path.join(app.config["UPLOAD_FOLDER"], filename)
+        file.save(file_path)
 
-            disease, prescription = predict_disease(file_path)
-            image_url = url_for('static', filename=f'uploads/{filename}')
-        else:
-            return render_template("predict.html", error="Invalid file format. Please upload PNG, JPG, or JPEG.")
+        disease, prescription = predict_disease(file_path)
+        image_url = url_for('static', filename=f'uploads/{filename}')
+    else:
+        return render_template("predict.html", error="Please upload a valid image.")
 
     return render_template("predict.html", disease=disease, prescription=prescription, image_url=image_url)
 
@@ -87,5 +89,4 @@ def contact():
     return render_template("contact.html")
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))  # Default to 5000 if not specified
-    app.run(host="0.0.0.0", port=port, debug=True)
+    app.run(debug=True)
